@@ -1,25 +1,36 @@
-from twisted.internet import reactor
+from twisted.internet import reactor, task
 from twisted.internet.protocol import DatagramProtocol
 
+from your_turn import YOUR_TURN_PORT
 
-class Helloer(DatagramProtocol):
+YOUR_TURN_IP: str = "127.0.0.1"
+
+
+class ExampleClient(DatagramProtocol):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self._counter = 0
+
     def startProtocol(self):
-        host = "127.0.0.1"
-        port = 9999
-
-        self.transport.connect(host, port)
-        print("now we can only send to host %s port %d" % (host, port))
-        self.transport.write(b"hello")  # no need for address
+        self.transport.connect(YOUR_TURN_IP, YOUR_TURN_PORT)
+        # Send some data every second
+        loop = task.LoopingCall(self.send_data)
+        loop.start(1.0, now=True)
 
     def datagramReceived(self, data, addr):
         print(f"received {data!r} from {addr}")
 
-    # Possibly invoked if there is no server listening on the
-    # address to which we are sending.
     def connectionRefused(self):
-        print("No one listening")
+        print("Failed to reach Your TURN relay!")
+        reactor.stop()
+
+    def send_data(self) -> None:
+        self.transport.write(f"hello {self._counter}".encode())
+        self._counter += 1
 
 
-# 0 means any port, we don't care in this case
-reactor.listenUDP(0, Helloer())
-reactor.run()
+if __name__ == "__main__":
+    # 0 means any port, we don't care in this case
+    reactor.listenUDP(0, ExampleClient())
+    reactor.run()
