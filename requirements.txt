@@ -1,0 +1,11 @@
+attrs==22.1.0
+Automat==22.10.0
+constantly==15.1.0
+hyperlink==21.0.0
+idna==3.4
+incremental==22.10.0
+six==1.16.0
+Twisted==22.8.0
+twisted-iocpsupport==1.0.2
+typing_extensions==4.4.0
+zope.interface==5.5.0
