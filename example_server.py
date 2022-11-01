@@ -15,10 +15,12 @@ class ExampleServer(DatagramProtocol):
     
     def startProtocol(self):
         self.transport.connect(ExampleServer.TURN_IP, ExampleServer.TURN_PORT)
-        self.transport.write(b"hello")
+        self.transport.write(b"reg")
 
     def datagramReceived(self, data, addr):
         print(f"received {data!r} from {addr}")
+        # Echo back data
+        self.transport.write(data)
 
     def connectionRefused(self):
         print("Failed to reach your TURN relay!")
