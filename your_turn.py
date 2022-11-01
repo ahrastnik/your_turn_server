@@ -1,6 +1,8 @@
 from twisted.internet import reactor
 from twisted.internet.protocol import DatagramProtocol
 
+YOUR_TURN_PORT: int = 6942
+
 
 class RelayServer(DatagramProtocol):
     def __init__(self) -> None:
@@ -24,5 +26,5 @@ class RelayServer(DatagramProtocol):
 
 
 if __name__ == '__main__':
-    reactor.listenUDP(6942, RelayServer())
+    reactor.listenUDP(YOUR_TURN_PORT, RelayServer())
     reactor.run()
