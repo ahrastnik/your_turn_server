@@ -1,15 +1,40 @@
+import struct
+
 from twisted.internet import reactor
 from twisted.internet.protocol import DatagramProtocol
 
 YOUR_TURN_PORT: int = 6942
 
+# Packet structure: UDP<TURN<prefix: uint16, sender id: uint32, ENet packet>>
+TURN_MSG_PREFIX: int = 0xAA
+
+
+def parse_turn_packet(self, turn_packet: bytes) -> bytes:
+    # TODO: Verify sender id is valid
+    if len(turn_packet) <= 6:
+        return ()
+    
+    preamble = struct.unpack(">HL", turn_packet[:6])
+    prefix, sender_id = preamble
+    if prefix != TURN_MSG_PREFIX:
+        return ()
+    
+    return (sender_id, turn_packet[6:])
+
+
+def make_turn_packet(self, id: int, enet_packet: bytes) -> bytes:
+    preamble: bytes = struct.pack(">HL", TURN_MSG_PREFIX, id)
+    return preamble + enet_packet
+
 
 class YourTurnRelay(DatagramProtocol):
     def __init__(self) -> None:
         super().__init__()
-
+        # TODO: Implement optimized client transfer, by using a separate port for clients and avoiding packet parsing
+        # TODO: Lease server/client registration for a limited time if no data flow is detected
         self._server_ip: str = ""
         self._server_port: int = 0
+        # TODO: Add support for multiple clients
         self._client_ip: str = ""
         self._client_port: str = 0
 
@@ -36,6 +61,8 @@ class YourTurnRelay(DatagramProtocol):
         return self._server_ip != ""
 
     def datagramReceived(self, data, addr) -> None:
+        print(f"received {data.hex()} from {addr}")
+        self.transport.write(data, addr)
         if not self.is_relay_linked():
             # Attempt to register server
             if data != b"reg":
