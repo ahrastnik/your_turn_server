@@ -81,11 +81,12 @@ class YourTurnRelay(DatagramProtocol):
         print(f"received {data.hex()} from {addr}")
         sender_ip, sender_port = addr
         peer_id, enet_packet = parse_turn_packet(data)
-        if len(enet_packet) == 0:
+        if len(enet_packet) <= 0:
             self.register_peer(peer_id, sender_ip, sender_port)
         else:
             peer: YourTurnPeer = self._peer_map.get(peer_id, None)
             if peer is None:
+                print(f"Invalid peer ID {peer_id}")
                 return
             self.transport.write(data, peer.get_addr())
 
@@ -113,9 +114,10 @@ class YourTurnRelay(DatagramProtocol):
         #             self.transport.write(data, self.get_server_address())
     
     def register_peer(self, id: int, ip: str, port: int) -> None:
-        # TODO: Handle cases where the peer already exists
+        # TODO: Disallow reregistration if id lease is still valid
+        reregistration: bool = id in self._peer_map
+        print(f"Peer {id}[{ip}:{port}] {'re-' if reregistration else ''}registered")
         self._peer_map[id] = YourTurnPeer(ip, port)
-        print(f"Peer {id}[{ip}:{port}] registered")
     
     # def unregister_peer(peer_id: int) -> None:
     #     pass

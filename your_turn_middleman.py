@@ -1,4 +1,4 @@
-import struct
+import argparse
 from typing import Callable
 
 from twisted.internet import reactor
@@ -14,62 +14,106 @@ YOUR_TURN_IP: str = "127.0.0.1"
 
 
 class YourTurnMiddlemanInterface(DatagramProtocol):
-    def __init__(self, id: int, recv_callback: Callable, port: int = 0) -> None:
-        super().__init__()
-
+    def __init__(self, id: int, recv_callback: Callable, send_port: int = 0) -> None:
         self._id: int = id
-        self._port: int = port
+        self._send_port: int = send_port
         self._recv_callback: Callable = recv_callback
+        self.__running: bool = False
     
-    def get_port(self) -> int:
-        return self._port
+    def is_running(self) -> bool:
+        return self.__running
+
+    def get_send_port(self) -> int:
+        return self._send_port
+
+    def set_send_port(self, send_port: int) -> None:
+        self._send_port = send_port
+
+    def is_send_port_set(self) -> bool:
+        return self._send_port > 1024
+
+    def startProtocol(self) -> None:
+        self.__running = True
+    
+    def stopProtocol(self) -> None:
+        self.__running = False
 
     def datagramReceived(self, data: bytes, addr: tuple) -> None:
         self._recv_callback(self._id, data, addr)
 
 
 class YourTurnMiddlemanRelay(YourTurnMiddlemanInterface):
-    def startProtocol(self):
+    def startProtocol(self) -> None:
+        super().startProtocol()
         self.transport.connect(YOUR_TURN_IP, YOUR_TURN_PORT)
         # Register interface on TURN server
         self.transport.write(make_turn_packet(self._id))
 
 
 class YourTurnMiddlemanPeer(YourTurnMiddlemanInterface):
-    def startProtocol(self):
-        self.transport.connect("127.0.0.1", self._port)
+    def startProtocol(self) -> None:
+        super().startProtocol()
+        if self._send_port > 1024:
+            self.transport.connect("127.0.0.1", self._send_port)
+    
+    def set_send_port(self, send_port: int) -> None:
+        super().set_send_port(send_port)
+        if self.is_running() and send_port > 1024:
+            self.transport.connect("127.0.0.1", send_port)
 
 
 class YourTurnMiddleman:
+    # NOTE: ID of 1 is always assumed to be the server
+    SERVER_ID: int = 1
+    SERVER_DEFAULT_PORT: int = 6969
     PORT_RANGE_START: int = 6970
     # TODO: Implement peer limit
     # PEERS_MAX: int = 12
 
-    def __init__(self, id: int = 1) -> None:
-        self._id = id
-        self.relay = YourTurnMiddlemanRelay(id, self._received_from_relay)
+    def __init__(self, is_server: bool, id: int = SERVER_ID, server_port: int = SERVER_DEFAULT_PORT) -> None:
+        self._is_server: bool = is_server
+        self._server_port: int = server_port
+        if is_server:
+            if id != YourTurnMiddleman.SERVER_ID:
+                raise ValueError("Server ID is always 1!")
+        else:
+            if id <= YourTurnMiddleman.SERVER_ID:
+                raise ValueError("Client ID must be greater then 1 and in 32 bit range!")
+        self._id: int = id
+        self.relay = YourTurnMiddlemanRelay(self._id, self._received_from_relay)
         self._peers: dict = {}
         self._next_peer_port: int = YourTurnMiddleman.PORT_RANGE_START
-        self.register_peer(1)
+        # Pre-register a peer on clients
+        if not is_server:
+            self.register_peer(id)
 
     def _received_from_relay(self, peer_id: int, turn_packet: bytes, addr: tuple) -> None:
+        ip, port = addr
         print(f"received {turn_packet.hex()} from {addr}")
         parsed_turn_packet = parse_turn_packet(turn_packet)
         if parsed_turn_packet == ():
             print("Failed to parse TURN packet")
             return
-        peer_id, enet_packet = parsed_turn_packet
+        receiver_id, enet_packet = parsed_turn_packet
         
-        peer = self._peers.get(peer_id, None)
+        peer = self._peers.get(receiver_id, None)
         if peer is None:
-            peer = self.register_peer(peer_id)
-        
+            if self._is_server:
+                peer = self.register_peer(receiver_id)
+            else:
+                print("Invalid client peer ID received!")
+                return
+        # Sending port has to be set in case of a client, as we don't know the clients port until it sends something
+        if not self._is_server and not peer.is_send_port_set():
+            peer.set_send_port(port)
         # Forward received data to peer
+        # FIXME: Transport is not immediately available after registration - Server side issue
         peer.transport.write(enet_packet)
     
     def _received_from_peer(self, peer_id: int, enet_packet: bytes, addr: tuple) -> None:
         print(f"received {enet_packet.hex()} from {addr}")
-        turn_packet: bytes = make_turn_packet(peer_id, enet_packet)
+        receiver_id: int = peer_id if self._is_server else YourTurnMiddleman.SERVER_ID
+        turn_packet: bytes = make_turn_packet(receiver_id, enet_packet)
         # Forward received data to relay server
         self.relay.transport.write(turn_packet)
     
@@ -77,12 +121,14 @@ class YourTurnMiddleman:
         if peer_id <= 0 or peer_id in self._peers:
             return
         
-        peer_port = self._next_peer_port
-        peer = YourTurnMiddlemanPeer(peer_id, self._received_from_peer, port=peer_port)
+        peer = YourTurnMiddlemanPeer(peer_id, self._received_from_peer)
+        if self._is_server:
+            peer.set_send_port(self._server_port)
         self._peers[peer_id] = peer
+        peer_port: int = self._next_peer_port
         reactor.listenUDP(peer_port, peer)
         self._next_peer_port += 1
-        print(f"Peer interface registered at port {peer_port}")
+        print(f"Peer interface registered on port {peer_port}")
         return peer
     
     # def unregister_peer(self, peer_id: int) -> None:
@@ -96,5 +142,14 @@ class YourTurnMiddleman:
 
 
 if __name__ == '__main__':
-    middleman = YourTurnMiddleman()
+    arg_parser = argparse.ArgumentParser(
+        prog="Your TURN server middleman",
+        description="Your TURN server peer side middleman"
+    )
+    arg_parser.add_argument("-s", "--server", action="store_true")
+    arg_parser.add_argument("-i", "--id", type=int, default=1)
+    arg_parser.add_argument("-p", "--port", type=int, default=YourTurnMiddleman.SERVER_DEFAULT_PORT)
+    args = arg_parser.parse_args()
+
+    middleman = YourTurnMiddleman(args.server, id=args.id)
     middleman.run()
