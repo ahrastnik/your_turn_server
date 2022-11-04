@@ -16,8 +16,9 @@ YOUR_TURN_IP: str = "127.0.0.1"
 
 
 class YourTurnMiddlemanInterface(DatagramProtocol):
-    def __init__(self, id: int, recv_callback: Callable, send_port: int = 0) -> None:
+    def __init__(self, id: int, recv_callback: Callable, send_port: int = 0, send_ip: str = "") -> None:
         self._id: int = id
+        self._send_ip: str = send_ip
         self._send_port: int = send_port
         self._recv_callback: Callable = recv_callback
 
@@ -36,13 +37,20 @@ class YourTurnMiddlemanInterface(DatagramProtocol):
     def is_send_port_set(self) -> bool:
         return self._send_port > 1024
 
+    def get_send_addr(self) -> tuple:
+        return (self._send_ip, self._send_port)
+
+    def has_valid_send_addr(self) -> bool:
+        return self._send_port > 1024 and self._send_ip != ""
+
     def startProtocol(self) -> None:
         self.__running = True
     	# Clear out send buffer
+        # TODO: Try using self.transport.writeSequence(data) to write the entire buffer in one go
         while True:
             try:
                 data: bytes = self.__send_buffer.popleft()
-                self.transport.write(data)
+                self.transport.write(data, addr=self.get_send_addr())
             except IndexError:
                 break
     
@@ -52,16 +60,20 @@ class YourTurnMiddlemanInterface(DatagramProtocol):
     def datagramReceived(self, data: bytes, addr: tuple) -> None:
         self._recv_callback(self._id, data, addr)
     
+    def connectionRefused(self):
+        # TODO: Implement handling of failed connections
+        pass
+    
     def send_data(self, data: bytes) -> None:
-        if self.is_running():
-            self.transport.write(data)
+        if self.__running:
+            self.transport.write(data, addr=self.get_send_addr())
         else:
             self.__send_buffer.append(data)
 
 
 class YourTurnMiddlemanRelay(YourTurnMiddlemanInterface):
     def startProtocol(self) -> None:
-        self.transport.connect(YOUR_TURN_IP, YOUR_TURN_PORT)
+        self.transport.connect(*self.get_send_addr())
         # Register interface on TURN server
         self.transport.write(make_turn_packet(self._id))
         super().startProtocol()
@@ -70,13 +82,15 @@ class YourTurnMiddlemanRelay(YourTurnMiddlemanInterface):
 class YourTurnMiddlemanPeer(YourTurnMiddlemanInterface):
     def startProtocol(self) -> None:
         if self._send_port > 1024:
-            self.transport.connect("127.0.0.1", self._send_port)
+            # NOTE: The port can only be set once, so session has to be restarted if client changes
+            # TODO: Optionally allow client changes
+            self.transport.connect(self._send_ip, self._send_port)
         super().startProtocol()
     
     def set_send_port(self, send_port: int) -> None:
         super().set_send_port(send_port)
         if self.is_running() and send_port > 1024:
-            self.transport.connect("127.0.0.1", send_port)
+            self.transport.connect(self._send_ip, send_port)
 
 
 class YourTurnMiddleman:
@@ -102,7 +116,12 @@ class YourTurnMiddleman:
             if id <= YourTurnMiddleman.SERVER_ID:
                 raise ValueError("Client ID must be greater then 1 and in 32 bit range!")
         self._id: int = id
-        self.relay = YourTurnMiddlemanRelay(self._id, self._received_from_relay)
+        self.relay = YourTurnMiddlemanRelay(
+            self._id,
+            self._received_from_relay,
+            send_ip=YOUR_TURN_IP,
+            send_port=YOUR_TURN_PORT
+        )
         self._peers: dict = {}
         self._next_peer_port: int = YourTurnMiddleman.PORT_RANGE_START
         # Pre-register a peer on clients
@@ -139,7 +158,6 @@ class YourTurnMiddleman:
         
         
         # Forward received data to peer
-        # FIXME: Transport is not immediately available after registration - Server side issue
         peer.send_data(payload)
     
     def _received_from_peer(self, peer_id: int, payload: bytes, addr: tuple) -> None:
@@ -161,7 +179,7 @@ class YourTurnMiddleman:
         if peer_id <= 0 or peer_id in self._peers:
             return None
         
-        peer = YourTurnMiddlemanPeer(peer_id, self._received_from_peer)
+        peer = YourTurnMiddlemanPeer(peer_id, self._received_from_peer, send_ip="127.0.0.1")
         if self._is_server:
             peer.set_send_port(self._server_port)
         
