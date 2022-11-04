@@ -96,16 +96,21 @@ class YourTurnMiddlemanPeer(YourTurnMiddlemanInterface):
 class YourTurnMiddleman:
     # NOTE: ID of 1 is always assumed to be the server
     SERVER_ID: int = 1
-    SERVER_DEFAULT_PORT: int = 6969
+    SERVER_DEFAULT_PORT: int = 6942
     PORT_RANGE_START: int = 6970
     # TODO: Implement peer limit
     # PEERS_MAX: int = 12
 
     def __init__(self,
+                relay_ip: str,
+                relay_port: int,
                 is_server: bool,
                 id: int = SERVER_ID,
                 server_port: int = SERVER_DEFAULT_PORT,
                 verbose: bool = False) -> None:
+        
+        self._relay_ip: str = relay_ip
+        self._relay_port: int = relay_port
         self._is_server: bool = is_server
         self._server_port: int = server_port
         self._verbose: bool = verbose
@@ -119,8 +124,8 @@ class YourTurnMiddleman:
         self.relay = YourTurnMiddlemanRelay(
             self._id,
             self._received_from_relay,
-            send_ip=YOUR_TURN_IP,
-            send_port=YOUR_TURN_PORT
+            send_ip=relay_ip,
+            send_port=relay_port
         )
         self._peers: dict = {}
         self._next_peer_port: int = YourTurnMiddleman.PORT_RANGE_START
@@ -209,9 +214,18 @@ if __name__ == '__main__':
     )
     arg_parser.add_argument("-s", "--server", action="store_true")
     arg_parser.add_argument("-i", "--id", type=int, default=1)
-    arg_parser.add_argument("-p", "--port", type=int, default=YourTurnMiddleman.SERVER_DEFAULT_PORT)
+    arg_parser.add_argument("-l", "--listen-port", type=int, default=YourTurnMiddleman.SERVER_DEFAULT_PORT)
     arg_parser.add_argument("-v", "--verbose", action="store_true")
+    arg_parser.add_argument("-r", "--relay-ip", default=YOUR_TURN_IP)
+    arg_parser.add_argument("-p", "--relay-port", type=int, default=YOUR_TURN_PORT)
     args = arg_parser.parse_args()
 
-    middleman = YourTurnMiddleman(args.server, id=args.id, verbose=args.verbose)
+    middleman = YourTurnMiddleman(
+        args.relay_ip,
+        args.relay_port,
+        args.server,
+        id=args.id,
+        server_port=args.listen_port,
+        verbose=args.verbose
+    )
     middleman.run()

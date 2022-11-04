@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from twisted.internet import reactor
 from twisted.internet.protocol import DatagramProtocol
 
-YOUR_TURN_PORT: int = 6942
+YOUR_TURN_PORT: int = 6969
 
 # Packet structure: UDP<TURN<prefix: uint16, sender/receiver id: uint32, Payload>>
 # When registering by having no data inside Payload field
@@ -50,6 +50,7 @@ class YourTurnRelay(DatagramProtocol):
         self._peer_map: dict = {}
         # TODO: Implement optimized client transfer, by using a separate port for clients and avoiding packet parsing
         # TODO: Lease server/client registration for a limited time if no data flow is detected
+        # TODO: Implement keep-alive packets as otherwise the connection can be closed by the router
 
     def get_peer_id_by_addr(self, addr: tuple) -> int:
         for peer_id in self._peer_map:
