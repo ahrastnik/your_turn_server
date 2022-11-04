@@ -75,10 +75,21 @@ class YourTurnRelay(DatagramProtocol):
         """Are server and client linked?"""
         return self._server_ip != ""
 
+    def get_peer_id_by_addr(self, addr: tuple) -> int:
+        for peer_id in self._peer_map:
+            peer = self._peer_map[peer_id]
+            if peer.get_addr() == addr:
+                return peer_id
+        return -1
+
     def datagramReceived(self, data, addr) -> None:
         print(f"received {data.hex()} from {addr}")
         sender_ip, sender_port = addr
-        peer_id, payload = parse_turn_packet(data)
+        parsed_packet = parse_turn_packet(data)
+        if parsed_packet == ():
+            print("Invalid packet received!")
+            return
+        peer_id, payload = parsed_packet
         if len(payload) <= 0:
             self.register_peer(peer_id, sender_ip, sender_port)
         else:
@@ -86,7 +97,14 @@ class YourTurnRelay(DatagramProtocol):
             if peer is None:
                 print(f"Invalid peer ID {peer_id}")
                 return
-            self.transport.write(data, peer.get_addr())
+            if peer_id != 1:
+                self.transport.write(data, peer.get_addr())
+            else:
+                sender_id = self.get_peer_id_by_addr(addr)
+                if sender_id <= 0:
+                    print("Sender not yet registered!")
+                    return
+                self.transport.write(make_turn_packet(sender_id, payload), peer.get_addr())
 
         # self.transport.write(data, addr)
         # if not self.is_relay_linked():
@@ -113,8 +131,17 @@ class YourTurnRelay(DatagramProtocol):
     
     def register_peer(self, id: int, ip: str, port: int) -> None:
         # TODO: Disallow reregistration if id lease is still valid
-        reregistration: bool = id in self._peer_map
-        print(f"Peer {id}[{ip}:{port}] {'re-' if reregistration else ''}registered")
+        is_registered: bool = id in self._peer_map
+        # Server doesn't need to know about it's own registration
+        if id != 1:
+            # Notify server of the registered peer
+            server: YourTurnPeer = self._peer_map.get(1, None)
+            if server is None:
+                print("Server not yet registered!")
+                return
+            self.transport.write(make_turn_packet(id), server.get_addr())
+        
+        print(f"Peer {id}[{ip}:{port}] {'re-' if is_registered else ''}registered")
         self._peer_map[id] = YourTurnPeer(ip, port)
     
     # def unregister_peer(peer_id: int) -> None:
@@ -122,5 +149,6 @@ class YourTurnRelay(DatagramProtocol):
 
 
 if __name__ == '__main__':
+    # TODO: Add verbose mode
     reactor.listenUDP(YOUR_TURN_PORT, YourTurnRelay())
     reactor.run()

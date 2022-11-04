@@ -105,7 +105,6 @@ class YourTurnMiddleman:
             self.register_peer(id)
 
     def _received_from_relay(self, peer_id: int, turn_packet: bytes, addr: tuple) -> None:
-        ip, port = addr
         print(f"received {turn_packet.hex()} from {addr}")
         parsed_turn_packet = parse_turn_packet(turn_packet)
         if parsed_turn_packet == ():
@@ -114,31 +113,36 @@ class YourTurnMiddleman:
         receiver_id: int
         payload: bytes
         receiver_id, payload = parsed_turn_packet
+        # Received notification about a newly registered peer
+        if len(payload) == 0 and self._is_server:
+            while True:
+                try:
+                    peer = self.register_peer(receiver_id)
+                    if peer is None:
+                        return
+                except CannotListenError as e:
+                    print(e)
+                else:
+                    break
         
         peer = self._peers.get(receiver_id, None)
         if peer is None:
-            if self._is_server:
-                while True:
-                    try:
-                        peer = self.register_peer(receiver_id)
-                        if peer is None:
-                            return
-                    except CannotListenError as e:
-                        print(e)
-                    else:
-                        break
-            else:
-                print("Invalid client peer ID received!")
-                return
-        # Sending port has to be set in case of a client, as we don't know the clients port until it sends something
-        if not self._is_server and not peer.is_send_port_set():
-            peer.set_send_port(port)
+            print("Invalid client peer ID received!")
+            return
+        
+        
         # Forward received data to peer
         # FIXME: Transport is not immediately available after registration - Server side issue
         peer.send_data(payload)
     
     def _received_from_peer(self, peer_id: int, payload: bytes, addr: tuple) -> None:
         print(f"received {payload.hex()} from {addr}")
+        # Sending port has to be set in case of a client, as we don't know the clients port until it sends something
+        ip, port = addr
+        peer: YourTurnMiddlemanPeer = self._peers[peer_id]
+        if not self._is_server and not peer.is_send_port_set():
+            peer.set_send_port(port)
+        
         receiver_id: int = peer_id if self._is_server else YourTurnMiddleman.SERVER_ID
         turn_packet: bytes = make_turn_packet(receiver_id, payload)
         # Forward received data to relay server
@@ -179,6 +183,7 @@ if __name__ == '__main__':
     arg_parser.add_argument("-s", "--server", action="store_true")
     arg_parser.add_argument("-i", "--id", type=int, default=1)
     arg_parser.add_argument("-p", "--port", type=int, default=YourTurnMiddleman.SERVER_DEFAULT_PORT)
+    # TODO: Add verbose mode
     args = arg_parser.parse_args()
 
     middleman = YourTurnMiddleman(args.server, id=args.id)
