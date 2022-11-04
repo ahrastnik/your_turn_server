@@ -144,23 +144,28 @@ class YourTurnMiddleman:
         receiver_id: int
         payload: bytes
         receiver_id, payload = parsed_turn_packet
+        
         # Received notification about a newly registered peer
-        if len(payload) == 0 and self._is_server:
-            while True:
-                try:
-                    peer = self.register_peer(receiver_id)
-                    if peer is None:
-                        return
-                except CannotListenError as e:
-                    print(e)
-                else:
-                    break
+        if len(payload) == 0:
+            # Skip, this is a keep-alive echo message
+            if receiver_id == self._id:
+                return
+            if self._is_server:
+                # Attempt to Register peer on the first available port 
+                while True:
+                    try:
+                        peer = self.register_peer(receiver_id)
+                        if peer is None:
+                            return
+                    except CannotListenError as e:
+                        print(e)
+                    else:
+                        break
         
         peer = self._peers.get(receiver_id, None)
         if peer is None:
             print("Invalid client peer ID received!")
             return
-        
         
         # Forward received data to peer
         peer.send_data(payload)

@@ -71,7 +71,7 @@ class YourTurnRelay(DatagramProtocol):
         peer_id, payload = parsed_packet
         
         if len(payload) <= 0:
-            self.register_peer(peer_id, sender_ip, sender_port)
+            self.register_peer(peer_id, addr)
         else:
             peer: YourTurnPeer = self._peer_map.get(peer_id, None)
             if peer is None:
@@ -90,7 +90,7 @@ class YourTurnRelay(DatagramProtocol):
                     return
                 self.transport.write(make_turn_packet(sender_id, payload), peer.get_addr())
     
-    def register_peer(self, id: int, ip: str, port: int) -> None:
+    def register_peer(self, id: int, registerer_addr: tuple) -> None:
         # TODO: Disallow reregistration if id lease is still valid
         is_registered: bool = id in self._peer_map
         # Server doesn't need to know about it's own registration
@@ -101,7 +101,11 @@ class YourTurnRelay(DatagramProtocol):
                 print("Server not yet registered!")
                 return
             self.transport.write(make_turn_packet(id), server.get_addr())
-        
+        # Confirm registration by echoing back
+        # NOTE: This mostly servers as a connection-confirmation package, as some routers will drop the
+        # connection if no data is received back within a given time-frame
+        self.transport.write(make_turn_packet(id), registerer_addr)
+        ip, port = registerer_addr
         print(f"Peer {id}[{ip}:{port}] {'re-' if is_registered else ''}registered")
         self._peer_map[id] = YourTurnPeer(ip, port)
     
