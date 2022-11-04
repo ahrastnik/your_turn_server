@@ -4,6 +4,7 @@ from collections import deque
 
 from twisted.internet import reactor
 from twisted.internet.protocol import DatagramProtocol
+from twisted.internet.error import CannotListenError
 
 from your_turn import (
     YOUR_TURN_PORT,
@@ -117,7 +118,15 @@ class YourTurnMiddleman:
         peer = self._peers.get(receiver_id, None)
         if peer is None:
             if self._is_server:
-                peer = self.register_peer(receiver_id)
+                while True:
+                    try:
+                        peer = self.register_peer(receiver_id)
+                        if peer is None:
+                            return
+                    except CannotListenError as e:
+                        print(e)
+                    else:
+                        break
             else:
                 print("Invalid client peer ID received!")
                 return
@@ -137,15 +146,18 @@ class YourTurnMiddleman:
     
     def register_peer(self, peer_id: int) -> YourTurnMiddlemanPeer:
         if peer_id <= 0 or peer_id in self._peers:
-            return
+            return None
         
         peer = YourTurnMiddlemanPeer(peer_id, self._received_from_peer)
         if self._is_server:
             peer.set_send_port(self._server_port)
-        self._peers[peer_id] = peer
+        
         peer_port: int = self._next_peer_port
-        reactor.listenUDP(peer_port, peer)
         self._next_peer_port += 1
+        reactor.listenUDP(peer_port, peer)
+
+        self._peers[peer_id] = peer
+        
         print(f"Peer interface registered on port {peer_port}")
         return peer
     
