@@ -87,9 +87,14 @@ class YourTurnMiddleman:
     # TODO: Implement peer limit
     # PEERS_MAX: int = 12
 
-    def __init__(self, is_server: bool, id: int = SERVER_ID, server_port: int = SERVER_DEFAULT_PORT) -> None:
+    def __init__(self,
+                is_server: bool,
+                id: int = SERVER_ID,
+                server_port: int = SERVER_DEFAULT_PORT,
+                verbose: bool = False) -> None:
         self._is_server: bool = is_server
         self._server_port: int = server_port
+        self._verbose: bool = verbose
         if is_server:
             if id != YourTurnMiddleman.SERVER_ID:
                 raise ValueError("Server ID is always 1!")
@@ -105,7 +110,9 @@ class YourTurnMiddleman:
             self.register_peer(id)
 
     def _received_from_relay(self, peer_id: int, turn_packet: bytes, addr: tuple) -> None:
-        print(f"received {turn_packet.hex()} from {addr}")
+        if self._verbose:
+            print(f"received {turn_packet.hex()} from {addr}")
+        
         parsed_turn_packet = parse_turn_packet(turn_packet)
         if parsed_turn_packet == ():
             print("Failed to parse TURN packet")
@@ -136,7 +143,9 @@ class YourTurnMiddleman:
         peer.send_data(payload)
     
     def _received_from_peer(self, peer_id: int, payload: bytes, addr: tuple) -> None:
-        print(f"received {payload.hex()} from {addr}")
+        if self._verbose:
+            print(f"received {payload.hex()} from {addr}")
+        
         # Sending port has to be set in case of a client, as we don't know the clients port until it sends something
         ip, port = addr
         peer: YourTurnMiddlemanPeer = self._peers[peer_id]
@@ -183,8 +192,8 @@ if __name__ == '__main__':
     arg_parser.add_argument("-s", "--server", action="store_true")
     arg_parser.add_argument("-i", "--id", type=int, default=1)
     arg_parser.add_argument("-p", "--port", type=int, default=YourTurnMiddleman.SERVER_DEFAULT_PORT)
-    # TODO: Add verbose mode
+    arg_parser.add_argument("-v", "--verbose", action="store_true")
     args = arg_parser.parse_args()
 
-    middleman = YourTurnMiddleman(args.server, id=args.id)
+    middleman = YourTurnMiddleman(args.server, id=args.id, verbose=args.verbose)
     middleman.run()

@@ -1,3 +1,4 @@
+import argparse
 import struct
 from dataclasses import dataclass
 
@@ -41,39 +42,14 @@ class YourTurnPeer:
 
 
 class YourTurnRelay(DatagramProtocol):
-    def __init__(self) -> None:
+    def __init__(self, verbose: bool = False) -> None:
         super().__init__()
-        # TODO: Implement optimized client transfer, by using a separate port for clients and avoiding packet parsing
-        # TODO: Lease server/client registration for a limited time if no data flow is detected
-        self._server_ip: str = ""
-        self._server_port: int = 0
-        # TODO: Add support for multiple clients
-        self._client_ip: str = ""
-        self._client_port: str = 0
+
+        self._verbose: bool = verbose
 
         self._peer_map: dict = {}
-
-    def get_server_address(self) -> tuple:
-        return (self._server_ip, self._server_port)
-    
-    def is_server(self, addr: tuple) -> bool:
-        host, port = addr
-        return host == self._server_ip and port == self._server_port
-    
-    def is_address_valid(self, addr: tuple) -> bool:
-        host, port = addr
-        return host != "" and port != 0
-    
-    def get_client_address(self) -> tuple:
-        return (self._client_ip, self._client_port)
-    
-    def is_client(self, addr: tuple) -> bool:
-        host, port = addr
-        return host == self._client_ip and port == self._client_port
-
-    def is_relay_linked(self) -> bool:
-        """Are server and client linked?"""
-        return self._server_ip != ""
+        # TODO: Implement optimized client transfer, by using a separate port for clients and avoiding packet parsing
+        # TODO: Lease server/client registration for a limited time if no data flow is detected
 
     def get_peer_id_by_addr(self, addr: tuple) -> int:
         for peer_id in self._peer_map:
@@ -83,13 +59,16 @@ class YourTurnRelay(DatagramProtocol):
         return -1
 
     def datagramReceived(self, data, addr) -> None:
-        print(f"received {data.hex()} from {addr}")
+        if self._verbose:
+            print(f"received {data.hex()} from {addr}")
+        
         sender_ip, sender_port = addr
         parsed_packet = parse_turn_packet(data)
         if parsed_packet == ():
             print("Invalid packet received!")
             return
         peer_id, payload = parsed_packet
+        
         if len(payload) <= 0:
             self.register_peer(peer_id, sender_ip, sender_port)
         else:
@@ -97,6 +76,10 @@ class YourTurnRelay(DatagramProtocol):
             if peer is None:
                 print(f"Invalid peer ID {peer_id}")
                 return
+            
+            if self._verbose:
+                print(f"{sender_ip}:{sender_port}\t-> {peer.ip}:{peer.port}")
+            
             if peer_id != 1:
                 self.transport.write(data, peer.get_addr())
             else:
@@ -105,29 +88,6 @@ class YourTurnRelay(DatagramProtocol):
                     print("Sender not yet registered!")
                     return
                 self.transport.write(make_turn_packet(sender_id, payload), peer.get_addr())
-
-        # self.transport.write(data, addr)
-        # if not self.is_relay_linked():
-        #     # Attempt to register server
-        #     if data != b"reg":
-        #         return
-        #     # TODO: Register received peer port
-        #     self._server_ip, self._server_port = addr
-        #     print(f"Server {self._server_ip}:{self._server_port} registered!")
-        # else:
-        #     if self.is_server(addr):
-        #         # Data received from server - relay to client
-        #         client_addr: tuple = self.get_client_address()
-        #         if self.is_address_valid(client_addr):
-        #             self.transport.write(data, client_addr)
-        #     else:
-        #         if not self.is_address_valid(self.get_client_address()):
-        #             # Register client
-        #             self._client_ip, self._client_port = addr
-        #             print(f"Client {self._client_ip}:{self._client_port} registered!")
-        #         if self.is_client(addr):
-        #             # Data received from client - relay to server
-        #             self.transport.write(data, self.get_server_address())
     
     def register_peer(self, id: int, ip: str, port: int) -> None:
         # TODO: Disallow reregistration if id lease is still valid
@@ -149,6 +109,14 @@ class YourTurnRelay(DatagramProtocol):
 
 
 if __name__ == '__main__':
-    # TODO: Add verbose mode
-    reactor.listenUDP(YOUR_TURN_PORT, YourTurnRelay())
+    arg_parser = argparse.ArgumentParser(
+        prog="Your TURN server",
+        description="Your TURN (Traversal Using Relays around NAT) server"
+    )
+    arg_parser.add_argument("-p", "--port", type=int, default=YOUR_TURN_PORT)
+    arg_parser.add_argument("-v", "--verbose", action="store_true")
+    args = arg_parser.parse_args()
+
+    reactor.listenUDP(args.port, YourTurnRelay(verbose=args.verbose))
+    print(f"Started TURN server on port {args.port}")
     reactor.run()
