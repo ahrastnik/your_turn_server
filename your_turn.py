@@ -6,16 +6,14 @@ from twisted.internet.protocol import DatagramProtocol
 
 YOUR_TURN_PORT: int = 6942
 
-# Packet structure: UDP<TURN<prefix: uint16, sender/receiver id: uint32, ENet packet>>
-# When registering by having no data inside ENet packet field
-# the ID field represents the sender, if there is data in the ENet packet, then the ID represents the receiver
+# Packet structure: UDP<TURN<prefix: uint16, sender/receiver id: uint32, Payload>>
+# When registering by having no data inside Payload field
+# the ID field represents the sender, if there is data in the Payload, then the ID represents the receiver
 TURN_MSG_PREFIX: int = 0xAA
 TURN_MSG_PREAMBLE_LEN: int = 6
 
 
 def parse_turn_packet(turn_packet: bytes) -> bytes:
-    # Packet structure: UDP<TURN<prefix: uint16, sender id: uint32, ENet packet>>
-    # TODO: Strip address from received data
     # TODO: Verify sender id is valid
     if len(turn_packet) < TURN_MSG_PREAMBLE_LEN:
         return ()
@@ -28,9 +26,9 @@ def parse_turn_packet(turn_packet: bytes) -> bytes:
     return (peer_id, turn_packet[TURN_MSG_PREAMBLE_LEN:])
 
 
-def make_turn_packet(id: int, enet_packet: bytes = b"") -> bytes:
+def make_turn_packet(id: int, payload: bytes = b"") -> bytes:
     preamble: bytes = struct.pack(">HL", TURN_MSG_PREFIX, id)
-    return preamble + enet_packet
+    return preamble + payload
 
 
 @dataclass
@@ -80,8 +78,8 @@ class YourTurnRelay(DatagramProtocol):
     def datagramReceived(self, data, addr) -> None:
         print(f"received {data.hex()} from {addr}")
         sender_ip, sender_port = addr
-        peer_id, enet_packet = parse_turn_packet(data)
-        if len(enet_packet) <= 0:
+        peer_id, payload = parse_turn_packet(data)
+        if len(payload) <= 0:
             self.register_peer(peer_id, sender_ip, sender_port)
         else:
             peer: YourTurnPeer = self._peer_map.get(peer_id, None)

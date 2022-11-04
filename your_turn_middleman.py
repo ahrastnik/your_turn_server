@@ -1,5 +1,6 @@
 import argparse
 from typing import Callable
+from collections import deque
 
 from twisted.internet import reactor
 from twisted.internet.protocol import DatagramProtocol
@@ -18,7 +19,9 @@ class YourTurnMiddlemanInterface(DatagramProtocol):
         self._id: int = id
         self._send_port: int = send_port
         self._recv_callback: Callable = recv_callback
+
         self.__running: bool = False
+        self.__send_buffer = deque()
     
     def is_running(self) -> bool:
         return self.__running
@@ -34,27 +37,40 @@ class YourTurnMiddlemanInterface(DatagramProtocol):
 
     def startProtocol(self) -> None:
         self.__running = True
+    	# Clear out send buffer
+        while True:
+            try:
+                data: bytes = self.__send_buffer.popleft()
+                self.transport.write(data)
+            except IndexError:
+                break
     
     def stopProtocol(self) -> None:
         self.__running = False
 
     def datagramReceived(self, data: bytes, addr: tuple) -> None:
         self._recv_callback(self._id, data, addr)
+    
+    def send_data(self, data: bytes) -> None:
+        if self.is_running():
+            self.transport.write(data)
+        else:
+            self.__send_buffer.append(data)
 
 
 class YourTurnMiddlemanRelay(YourTurnMiddlemanInterface):
     def startProtocol(self) -> None:
-        super().startProtocol()
         self.transport.connect(YOUR_TURN_IP, YOUR_TURN_PORT)
         # Register interface on TURN server
         self.transport.write(make_turn_packet(self._id))
+        super().startProtocol()
 
 
 class YourTurnMiddlemanPeer(YourTurnMiddlemanInterface):
     def startProtocol(self) -> None:
-        super().startProtocol()
         if self._send_port > 1024:
             self.transport.connect("127.0.0.1", self._send_port)
+        super().startProtocol()
     
     def set_send_port(self, send_port: int) -> None:
         super().set_send_port(send_port)
@@ -94,7 +110,9 @@ class YourTurnMiddleman:
         if parsed_turn_packet == ():
             print("Failed to parse TURN packet")
             return
-        receiver_id, enet_packet = parsed_turn_packet
+        receiver_id: int
+        payload: bytes
+        receiver_id, payload = parsed_turn_packet
         
         peer = self._peers.get(receiver_id, None)
         if peer is None:
@@ -108,14 +126,14 @@ class YourTurnMiddleman:
             peer.set_send_port(port)
         # Forward received data to peer
         # FIXME: Transport is not immediately available after registration - Server side issue
-        peer.transport.write(enet_packet)
+        peer.send_data(payload)
     
-    def _received_from_peer(self, peer_id: int, enet_packet: bytes, addr: tuple) -> None:
-        print(f"received {enet_packet.hex()} from {addr}")
+    def _received_from_peer(self, peer_id: int, payload: bytes, addr: tuple) -> None:
+        print(f"received {payload.hex()} from {addr}")
         receiver_id: int = peer_id if self._is_server else YourTurnMiddleman.SERVER_ID
-        turn_packet: bytes = make_turn_packet(receiver_id, enet_packet)
+        turn_packet: bytes = make_turn_packet(receiver_id, payload)
         # Forward received data to relay server
-        self.relay.transport.write(turn_packet)
+        self.relay.send_data(turn_packet)
     
     def register_peer(self, peer_id: int) -> YourTurnMiddlemanPeer:
         if peer_id <= 0 or peer_id in self._peers:
