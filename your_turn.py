@@ -1,8 +1,9 @@
 import argparse
 import struct
-from dataclasses import dataclass
+from time import time
+from typing import Callable
 
-from twisted.internet import reactor
+from twisted.internet import reactor, task
 from twisted.internet.protocol import DatagramProtocol
 
 YOUR_TURN_PORT: int = 6969
@@ -32,25 +33,49 @@ def make_turn_packet(id: int, payload: bytes = b"") -> bytes:
     return preamble + payload
 
 
-@dataclass
 class YourTurnPeer:
-    ip: str
-    port: int
+    STALE_TIME: float = 1.0  # [s]
+
+    def __init__(self, ip: str, port: int, send_function: Callable) -> None:
+        self._ip: str = ip
+        self._port: int = port
+        self._send: Callable = send_function  # Transport Function through which to send data to peer
+
+        self._last_packet: float = 0  # [s] When was the last packet sent
 
     def get_addr(self) -> tuple:
-        return (self.ip, self.port)
+        return (self._ip, self._port)
+    
+    def is_stale(self) -> bool:
+        return (time() - self._last_packet) > YourTurnPeer.STALE_TIME
+    
+    def send(self, data: bytes) -> None:
+        # Record sent message time
+        self._last_packet = time()
+        self._send(data, self.get_addr())
 
 
 class YourTurnRelay(DatagramProtocol):
+    KEEP_ALIVE_PERIOD: float = 1.0  # [s]
+
     def __init__(self, verbose: bool = False) -> None:
         super().__init__()
 
         self._verbose: bool = verbose
 
         self._peer_map: dict = {}
+        # This function is called periodically to make sure all peer connections stay alive
+        self._keep_alive = task.LoopingCall(self._watchdog)
+        self._keep_alive.start(YourTurnRelay.KEEP_ALIVE_PERIOD, now=True)
         # TODO: Implement optimized client transfer, by using a separate port for clients and avoiding packet parsing
         # TODO: Lease server/client registration for a limited time if no data flow is detected
-        # TODO: Implement keep-alive packets as otherwise the connection can be closed by the router
+
+    def _watchdog(self) -> None:
+        for peer_id in self._peer_map:
+            peer: YourTurnPeer = self._peer_map[peer_id]
+            if not peer.is_stale():
+                continue
+            peer.send(make_turn_packet(peer_id))
 
     def get_peer_id_by_addr(self, addr: tuple) -> int:
         for peer_id in self._peer_map:
@@ -82,13 +107,13 @@ class YourTurnRelay(DatagramProtocol):
                 print(f"{sender_ip}:{sender_port}\t-> {peer.ip}:{peer.port}")
             
             if peer_id != 1:
-                self.transport.write(data, peer.get_addr())
+                peer.send(data)
             else:
                 sender_id = self.get_peer_id_by_addr(addr)
                 if sender_id <= 0:
                     print("Sender not yet registered!")
                     return
-                self.transport.write(make_turn_packet(sender_id, payload), peer.get_addr())
+                peer.send(make_turn_packet(sender_id, payload))
     
     def register_peer(self, id: int, registerer_addr: tuple) -> None:
         # TODO: Disallow reregistration if id lease is still valid
@@ -100,14 +125,16 @@ class YourTurnRelay(DatagramProtocol):
             if server is None:
                 print("Server not yet registered!")
                 return
-            self.transport.write(make_turn_packet(id), server.get_addr())
+            server.send(make_turn_packet(id))
+        
+        ip, port = registerer_addr
+        print(f"Peer {id}[{ip}:{port}] {'re-' if is_registered else ''}registered")
+        peer = YourTurnPeer(ip, port, self.transport.write)
+        self._peer_map[id] = peer
         # Confirm registration by echoing back
         # NOTE: This mostly servers as a connection-confirmation package, as some routers will drop the
         # connection if no data is received back within a given time-frame
-        self.transport.write(make_turn_packet(id), registerer_addr)
-        ip, port = registerer_addr
-        print(f"Peer {id}[{ip}:{port}] {'re-' if is_registered else ''}registered")
-        self._peer_map[id] = YourTurnPeer(ip, port)
+        peer.send(make_turn_packet(id))
     
     # def unregister_peer(peer_id: int) -> None:
     #     pass
