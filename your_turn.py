@@ -15,7 +15,7 @@ TURN_MSG_PREFIX: int = 0xAA
 TURN_MSG_PREAMBLE_LEN: int = 6
 
 
-def parse_turn_packet(turn_packet: bytes) -> bytes:
+def parse_turn_packet(turn_packet: bytes) -> tuple:
     # TODO: Verify sender id is valid
     if len(turn_packet) < TURN_MSG_PREAMBLE_LEN:
         return ()
@@ -25,7 +25,7 @@ def parse_turn_packet(turn_packet: bytes) -> bytes:
     if prefix != TURN_MSG_PREFIX:
         return ()
     
-    return (peer_id, turn_packet[TURN_MSG_PREAMBLE_LEN:])
+    return peer_id, turn_packet[TURN_MSG_PREAMBLE_LEN:]
 
 
 def make_turn_packet(id: int, payload: bytes = b"") -> bytes:
