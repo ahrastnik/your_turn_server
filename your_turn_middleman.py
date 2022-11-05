@@ -16,8 +16,9 @@ YOUR_TURN_IP: str = "127.0.0.1"
 
 
 class YourTurnMiddlemanInterface(DatagramProtocol):
-    def __init__(self, id: int, recv_callback: Callable, send_port: int = 0, send_ip: str = "") -> None:
+    def __init__(self, id: int, recv_callback: Callable, recv_port: int = 0, send_port: int = 0, send_ip: str = "") -> None:
         self._id: int = id
+        self._recv_port: int = recv_port
         self._send_ip: str = send_ip
         self._send_port: int = send_port
         self._recv_callback: Callable = recv_callback
@@ -27,6 +28,9 @@ class YourTurnMiddlemanInterface(DatagramProtocol):
     
     def is_running(self) -> bool:
         return self.__running
+
+    def get_recv_port(self) -> int:
+        return self._recv_port
 
     def get_send_port(self) -> int:
         return self._send_port
@@ -130,11 +134,18 @@ class YourTurnMiddleman:
             send_ip=relay_ip,
             send_port=relay_port
         )
+        reactor.listenUDP(0, self.relay)
         self._peers: dict = {}
         self._next_peer_port: int = YourTurnMiddleman.PORT_RANGE_START
         # Pre-register a peer on clients
         if not is_server:
             self.register_peer(id)
+
+    def get_client_interface_addr(self) -> tuple:
+        client_interface: YourTurnMiddlemanPeer = self._peers.get(self._id, None)
+        if client_interface is None:
+            return ()
+        return "127.0.0.1", client_interface.get_recv_port()
 
     def _received_from_relay(self, peer_id: int, turn_packet: bytes, addr: tuple) -> None:
         if self._verbose:
@@ -193,15 +204,16 @@ class YourTurnMiddleman:
     def register_peer(self, peer_id: int) -> YourTurnMiddlemanPeer:
         if peer_id <= 0 or peer_id in self._peers:
             return None
-        
-        peer = YourTurnMiddlemanPeer(peer_id, self._received_from_peer, send_ip="127.0.0.1")
-        if self._is_server:
-            peer.set_send_port(self._server_port)
-        
+
         peer_port: int = self._next_peer_port
         self._next_peer_port += 1
-        reactor.listenUDP(peer_port, peer)
+        
+        peer = YourTurnMiddlemanPeer(peer_id, self._received_from_peer, recv_port=peer_port, send_ip="127.0.0.1")
+        if self._is_server:
+            peer.set_send_port(self._server_port)
 
+        # Try to open a port & store the peer if it succeeds
+        reactor.listenUDP(peer_port, peer)
         self._peers[peer_id] = peer
         
         print(f"Peer interface registered on port {peer_port}")
@@ -211,10 +223,6 @@ class YourTurnMiddleman:
     #     # TODO: Implement
     #     # TODO: Handle starting/stopping listeners
     #     pass
-    
-    def run(self):
-        reactor.listenUDP(0, self.relay)
-        reactor.run()
 
 
 if __name__ == '__main__':
@@ -238,4 +246,4 @@ if __name__ == '__main__':
         server_port=args.listen_port,
         verbose=args.verbose
     )
-    middleman.run()
+    reactor.run()
