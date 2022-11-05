@@ -104,7 +104,8 @@ class YourTurnRelay(DatagramProtocol):
                 return
             
             if self._verbose:
-                print(f"{sender_ip}:{sender_port}\t-> {peer.ip}:{peer.port}")
+                peer_ip, peer_port = peer.get_addr()
+                print(f"{sender_ip}:{sender_port}\t-> {peer_ip}:{peer_port}")
             
             if peer_id != 1:
                 peer.send(data)
