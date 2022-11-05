@@ -156,13 +156,15 @@ class YourTurnMiddleman:
                     try:
                         peer = self.register_peer(receiver_id)
                         if peer is None:
+                            print("Failed to register peer!")
                             return
                     except CannotListenError as e:
                         print(e)
                     else:
                         break
+            return
         
-        peer = self._peers.get(receiver_id, None)
+        peer: YourTurnMiddlemanPeer = self._peers.get(receiver_id, None)
         if peer is None:
             print("Invalid client peer ID received!")
             return
