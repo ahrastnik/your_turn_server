@@ -66,7 +66,10 @@ class YourTurnMiddlemanInterface(DatagramProtocol):
     
     def send_data(self, data: bytes) -> None:
         if self.__running:
-            self.transport.write(data, addr=self.get_send_addr())
+            try:
+                self.transport.write(data, addr=self.get_send_addr())
+            except BlockingIOError as e:
+                print(e)
         else:
             self.__send_buffer.append(data)
 
