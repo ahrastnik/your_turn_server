@@ -97,6 +97,20 @@ ID of 1 is reserved for the Server.
 ***TODO...***
 
 ---
+## Examples
+
+As an example Application, `example_server.py` and `example_client.py` are provided.
+They serve as an example of integrating the Middleman into your Python application
+& also as a connection tester and benchmark tool.
+
+**How examples work**
+
+The Example Client sends out ping packets to the Example Server through the Middleman & Relay.
+Example Server then returns the packet it received.
+Once Example Client receives the packet back, it calculates & displays the RTT (Round Trip Time).
+That's why you can also use the Example Client & Server to benchmark your connection speed with the Relay.
+
+---
 ## License
 
 [MIT](LICENSE.md)
