@@ -75,9 +75,19 @@ document, it does not follow the design guide rules fully.
 Setup is super easy. It's recommended to create a separate virtual environment.
 
 1. Create a virtual environment: `python -m venv env`
-2. Install all dependencies: `pip install -r requirements.txt`
+2. Activate the virtual environment Windows: `.\env\Scripts\activate` or Linux `. env\bin\activate`
+3. Install all dependencies: `pip install -r requirements.txt`
 
 The only external library used is [twisted](https://twisted.org/).
+
+*Tested with Python 3.11, 3.10 and 3.8 on Windows 10, Ubuntu 20.04 & 22.04*
+
+### Docker
+
+For the easiest, fastest & most secure Relay setup, use [Docker](https://www.docker.com/).
+Then, just run `docker compose up` in the project directory and Relay will auto-magically run on the default port.
+
+*Tested with Docker version 20.10.20*
 
 ---
 ## Usage
@@ -85,16 +95,12 @@ The only external library used is [twisted](https://twisted.org/).
 In order for this to work via WAN, you must deploy this package onto a publicly reachable server (from now on, TURN server).
 If you are rolling your own server, make sure you forwarded appropriate ports - default is `6969`.
 
-1. Run on TURN server: `python your_turn.py`
+1. Run on TURN server: `python your_turn.py` - *Skip this step if you ran the Relay using Docker*
 2. Run on Server end-point: `python your_turn_middleman.py --server --relay-ip <IP of your TURN server>`
 3. Run on Client/s end-point/s: `python your_turn_middleman.py --id 42 --relay-ip <IP of your TURN server>`
 
 The ID is some arbitrary unsigned 32-bit number, but it has to be unique for each Client and greater than 1.
 ID of 1 is reserved for the Server.
-
-### Docker
-
-***TODO...***
 
 ---
 ## Examples

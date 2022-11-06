@@ -1,0 +1,9 @@
+version: '3'
+
+services:
+  relay:
+    build: .
+    ports:
+      - "6969:6969/udp"
+    restart: always
+    network_mode: bridge
