@@ -103,7 +103,7 @@ if __name__ == "__main__":
         prog="Client Application example",
         description="Your TURN server - Client Application example"
     )
-    arg_parser.add_argument("-i", "--id", type=int, default=69)
+    arg_parser.add_argument("-i", "--id", type=int, default=1)
     arg_parser.add_argument("-v", "--verbose", action="store_true")
     arg_parser.add_argument("-r", "--relay-ip", default=YOUR_TURN_IP)
     arg_parser.add_argument("-p", "--relay-port", type=int, default=YOUR_TURN_PORT)

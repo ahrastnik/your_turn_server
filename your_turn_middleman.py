@@ -1,6 +1,8 @@
 import argparse
 from typing import Callable
 from collections import deque
+from zlib import adler32
+import uuid
 
 from twisted.internet import reactor
 from twisted.internet.protocol import DatagramProtocol
@@ -126,7 +128,10 @@ class YourTurnMiddleman:
                 raise ValueError("Server ID is always 1!")
         else:
             if id <= YourTurnMiddleman.SERVER_ID:
-                raise ValueError("Client ID must be greater then 1 and in 32 bit range!")
+                # Generate a unique 32-bit ID if one was not generated
+                unique_id: uuid.UUID = uuid.UUID(int=uuid.getnode())
+                id = adler32(unique_id.bytes)
+
         self._id: int = id
         self.relay = YourTurnMiddlemanRelay(
             self._id,
@@ -140,6 +145,9 @@ class YourTurnMiddleman:
         # Pre-register a peer on clients
         if not is_server:
             self.register_peer(id)
+        
+        print(f"Started Your TURN Middleman in {'Server' if is_server else 'Client'} mode!")
+        print(f"Connected to Relay on address {relay_ip}:{relay_port}")
 
     def get_client_interface_addr(self) -> tuple:
         client_interface: YourTurnMiddlemanPeer = self._peers.get(self._id, None)
@@ -216,7 +224,7 @@ class YourTurnMiddleman:
         reactor.listenUDP(peer_port, peer)
         self._peers[peer_id] = peer
         
-        print(f"Peer interface registered on port {peer_port}")
+        print(f"Peer [{peer_id}] registered on port {peer_port}")
         return peer
     
     # def unregister_peer(self, peer_id: int) -> None:
