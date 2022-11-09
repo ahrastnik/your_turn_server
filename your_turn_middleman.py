@@ -3,10 +3,12 @@ from typing import Callable
 from collections import deque
 from zlib import adler32
 import uuid
+import re
 
 from twisted.internet import reactor
 from twisted.internet.protocol import DatagramProtocol
 from twisted.internet.error import CannotListenError
+from twisted.internet.defer import Deferred
 
 from your_turn import (
     YOUR_TURN_PORT,
@@ -15,6 +17,9 @@ from your_turn import (
 )
 
 YOUR_TURN_IP: str = "127.0.0.1"
+
+VALID_IP_ADDR_REGEX: str = "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$"
+VALID_HOSTNAME_REGEX: str = "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$"
 
 
 class YourTurnMiddlemanInterface(DatagramProtocol):
@@ -133,21 +138,39 @@ class YourTurnMiddleman:
                 id = adler32(unique_id.bytes)
 
         self._id: int = id
-        self.relay = YourTurnMiddlemanRelay(
-            self._id,
-            self._received_from_relay,
-            send_ip=relay_ip,
-            send_port=relay_port
-        )
-        reactor.listenUDP(0, self.relay)
         self._peers: dict = {}
         self._next_peer_port: int = YourTurnMiddleman.PORT_RANGE_START
+
+        # Figure out if the Relay address is an IP or a hostname
+        is_ip_addr: bool = bool(re.match(VALID_IP_ADDR_REGEX, relay_ip))
+        is_hostname: bool = bool(re.match(VALID_HOSTNAME_REGEX, relay_ip))
+        if is_ip_addr:
+            self.run()
+        elif is_hostname:
+            on_ip_resolved: Deferred  = reactor.resolve(relay_ip)
+            on_ip_resolved.addCallback(self._hostname_resolved)
+        else:
+            raise ValueError("Relay IP is invalid!")
+
+    def _hostname_resolved(self, ip: str) -> None:
+        self._relay_ip = ip
+        self.run()
+
+    def run(self) -> None:
+        # Start Relay interface
+        self._relay = YourTurnMiddlemanRelay(
+            self._id,
+            self._received_from_relay,
+            send_ip=self._relay_ip,
+            send_port=self._relay_port
+        )
+        reactor.listenUDP(0, self._relay)
         # Pre-register a peer on clients
-        if not is_server:
-            self.register_peer(id)
-        
-        print(f"Started Your TURN Middleman in {'Server' if is_server else 'Client'} mode!")
-        print(f"Connected to Relay on address {relay_ip}:{relay_port}")
+        if not self._is_server:
+            self.register_peer(self._id)
+
+        print(f"Started Your TURN Middleman in {'Server' if self._is_server else 'Client'} mode!")
+        print(f"Connected to Relay on address {self._relay_ip}:{self._relay_port}")
 
     def get_client_interface_addr(self) -> tuple:
         client_interface: YourTurnMiddlemanPeer = self._peers.get(self._id, None)
@@ -207,7 +230,7 @@ class YourTurnMiddleman:
         receiver_id: int = peer_id if self._is_server else YourTurnMiddleman.SERVER_ID
         turn_packet: bytes = make_turn_packet(receiver_id, payload)
         # Forward received data to relay server
-        self.relay.send_data(turn_packet)
+        self._relay.send_data(turn_packet)
     
     def register_peer(self, peer_id: int) -> YourTurnMiddlemanPeer:
         if peer_id <= 0 or peer_id in self._peers:
