@@ -97,10 +97,9 @@ If you are rolling your own server, make sure you forwarded appropriate ports - 
 
 1. Run on TURN server: `python your_turn.py` - *Skip this step if you ran the Relay using Docker*
 2. Run on Server end-point: `python your_turn_middleman.py --server --relay-ip <IP of your TURN server>`
-3. Run on Client/s end-point/s: `python your_turn_middleman.py --id 42 --relay-ip <IP of your TURN server>`
+3. Run on Client/s end-point/s: `python your_turn_middleman.py --relay-ip <IP of your TURN server>`
 
-The ID is some arbitrary unsigned 32-bit number, but it has to be unique for each Client and greater than 1.
-ID of 1 is reserved for the Server.
+Each peer is assigned an ID that is some arbitrary unsigned 32-bit number. ID of 1 is reserved for the Server, but it has to be unique for each Client and greater than 1. By default it is auto generated for Clients, however, if problems occur it can be manually set with the `--id <your ID >` Middleman argument - but only for Clients.
 
 ---
 ## Examples
