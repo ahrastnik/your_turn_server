@@ -121,13 +121,17 @@ class YourTurnMiddleman:
                 is_server: bool,
                 id: int = SERVER_ID,
                 server_port: int = SERVER_DEFAULT_PORT,
-                verbose: bool = False) -> None:
+                verbose: bool = False,
+                on_ip_resolved: Callable = None,
+                on_peer_registered: Callable = None) -> None:
         
         self._relay_ip: str = relay_ip
         self._relay_port: int = relay_port
         self._is_server: bool = is_server
         self._server_port: int = server_port
         self._verbose: bool = verbose
+        self._on_ip_resolved: Callable = on_ip_resolved
+        self._on_peer_registered: Callable = on_peer_registered
         if is_server:
             if id != YourTurnMiddleman.SERVER_ID:
                 raise ValueError("Server ID is always 1!")
@@ -147,8 +151,8 @@ class YourTurnMiddleman:
         if is_ip_addr:
             self.run()
         elif is_hostname:
-            on_ip_resolved: Deferred  = reactor.resolve(relay_ip)
-            on_ip_resolved.addCallback(self._hostname_resolved)
+            ip_resolver: Deferred  = reactor.resolve(relay_ip)
+            ip_resolver.addCallback(self._hostname_resolved)
         else:
             raise ValueError("Relay IP is invalid!")
 
@@ -168,6 +172,9 @@ class YourTurnMiddleman:
         # Pre-register a peer on clients
         if not self._is_server:
             self.register_peer(self._id)
+        
+        if not self._on_ip_resolved is None:
+            self._on_ip_resolved(self._relay_ip, self._relay_port)
 
         print(f"Started Your TURN Middleman in {'Server' if self._is_server else 'Client'} mode!")
         print(f"Connected to Relay on address {self._relay_ip}:{self._relay_port}")
@@ -246,6 +253,9 @@ class YourTurnMiddleman:
         # Try to open a port & store the peer if it succeeds
         reactor.listenUDP(peer_port, peer)
         self._peers[peer_id] = peer
+
+        if not self._on_peer_registered is None:
+            self._on_peer_registered(peer_id, peer_port)
         
         print(f"Peer [{peer_id}] registered on port {peer_port}")
         return peer

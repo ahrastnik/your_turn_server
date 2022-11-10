@@ -19,8 +19,8 @@ PING_STAT_PUBLISH: float = 1.0
 class ExampleClient(DatagramProtocol):
     def __init__(self,
                  client_id: int,
-                 send_addr: tuple,
                  ping_frequency: float,
+                 send_addr: tuple = (),
                  bypass: bool = False,
                  verbose: bool = False) -> None:
         super().__init__()
@@ -31,11 +31,23 @@ class ExampleClient(DatagramProtocol):
         self._bypass = bypass
         self._verbose = verbose
 
+        self._running = False
+        self._connected = False
         self._counter: int = 0
         self._ping_buffer = deque(maxlen=2048)
+    
+    def set_send_addr(self, host, port) -> None:
+        self._send_addr = (host, port)
+        if not self._connected and self._running:
+            self.connect(host, port)
 
     def startProtocol(self):
-        self.transport.connect(*self._send_addr)
+        self._running = True
+        if self._send_addr != ():
+            self.connect(*self._send_addr)
+    
+    def connect(self, host: str, port: int) -> None:
+        self.transport.connect(host, port)
 
         if self._bypass:
             # Register on Relay
@@ -48,6 +60,8 @@ class ExampleClient(DatagramProtocol):
 
             ping_statistics_publisher = task.LoopingCall(self.ping_publish_statistics)
             ping_statistics_publisher.start(PING_STAT_PUBLISH, now=False)
+        
+        self._connected = True
 
     def datagramReceived(self, data, addr):
         if self._verbose:
@@ -111,14 +125,13 @@ if __name__ == "__main__":
     arg_parser.add_argument("-b", "--bypass", action="store_true", help="Bypass Middleman")
     args = arg_parser.parse_args()
 
-    send_address: tuple
+    client_app = ExampleClient(args.id, args.frequency, bypass=args.bypass, verbose=args.verbose)
     if not args.bypass:
-        middleman = YourTurnMiddleman(args.relay_ip, args.relay_port, False, id=args.id, verbose=args.verbose)
-        send_address = middleman.get_client_interface_addr()
+        set_client_interface_address = lambda i, p: client_app.set_send_addr("127.0.0.1", p)
+        middleman = YourTurnMiddleman(args.relay_ip, args.relay_port, False, id=args.id, verbose=args.verbose, on_peer_registered=set_client_interface_address)
     else:
         # Bypass Middleman and send directly to the Relay
-        send_address = (args.relay_ip, args.relay_port)
+        client_app.set_send_addr(args.relay_ip, args.relay_port)
 
-    client_app = ExampleClient(args.id, send_address, args.frequency, bypass=args.bypass, verbose=args.verbose)
     reactor.listenUDP(0, client_app)
     reactor.run()
