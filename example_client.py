@@ -22,6 +22,7 @@ class ExampleClient(DatagramProtocol):
                  ping_frequency: float,
                  send_addr: tuple = (),
                  bypass: bool = False,
+                 direct: bool = False,
                  verbose: bool = False) -> None:
         super().__init__()
 
@@ -29,6 +30,7 @@ class ExampleClient(DatagramProtocol):
         self._send_addr = send_addr
         self._ping_frequency = ping_frequency
         self._bypass = bypass
+        self._direct = direct
         self._verbose = verbose
 
         self._running = False
@@ -123,10 +125,11 @@ if __name__ == "__main__":
     arg_parser.add_argument("-p", "--relay-port", type=int, default=YOUR_TURN_PORT)
     arg_parser.add_argument("-f", "--frequency", type=float, default=PING_DEFAULT_FREQUENCY)
     arg_parser.add_argument("-b", "--bypass", action="store_true", help="Bypass Middleman")
+    arg_parser.add_argument("-d", "--direct", action="store_true", help="Send raw packet, without encapsulation")
     args = arg_parser.parse_args()
 
-    client_app = ExampleClient(args.id, args.frequency, bypass=args.bypass, verbose=args.verbose)
-    if not args.bypass:
+    client_app = ExampleClient(args.id, args.frequency, bypass=args.bypass, direct=args.direct, verbose=args.verbose)
+    if not args.bypass and not args.direct:
         set_client_interface_address = lambda i, p: client_app.set_send_addr("127.0.0.1", p)
         middleman = YourTurnMiddleman(args.relay_ip, args.relay_port, False, id=args.id, verbose=args.verbose, on_peer_registered=set_client_interface_address)
     else:

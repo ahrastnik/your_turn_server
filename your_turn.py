@@ -36,12 +36,16 @@ def make_turn_packet(id: int, payload: bytes = b"") -> bytes:
 class YourTurnPeer:
     STALE_TIME: float = 1.0  # [s]
 
-    def __init__(self, ip: str, port: int, send_function: Callable) -> None:
+    def __init__(self, ip: str, port: int, send_function: Callable, is_server: bool = False) -> None:
         self._ip: str = ip
         self._port: int = port
         self._send: Callable = send_function  # Transport Function through which to send data to peer
+        self._is_server = is_server
 
         self._last_packet: float = 0  # [s] When was the last packet sent
+
+    def is_server(self) -> bool:
+        return self._is_server
 
     def get_addr(self) -> tuple:
         return (self._ip, self._port)
@@ -58,12 +62,15 @@ class YourTurnPeer:
 class YourTurnRelay(DatagramProtocol):
     KEEP_ALIVE_PERIOD: float = 1.0  # [s]
 
-    def __init__(self, verbose: bool = False) -> None:
+    def __init__(self, direct_mode: bool, verbose: bool = False) -> None:
         super().__init__()
 
+        self._direct_mode: bool = direct_mode
         self._verbose: bool = verbose
 
         self._peer_map: dict = {}
+        self._client_port_map: dict = {}
+        # TODO: Cache server peer - self._peer_server: YourTurnPeer = None
         # This function is called periodically to make sure all peer connections stay alive
         self._keep_alive = task.LoopingCall(self._watchdog)
         self._keep_alive.start(YourTurnRelay.KEEP_ALIVE_PERIOD, now=True)
@@ -89,15 +96,38 @@ class YourTurnRelay(DatagramProtocol):
             print(f"received {data.hex()} from {addr}")
         
         sender_ip, sender_port = addr
+        # Attempt to parse package
         parsed_packet = parse_turn_packet(data)
         if parsed_packet == ():
-            print("Invalid packet received!")
+            if self._direct_mode:
+                server_peer: YourTurnPeer = self._peer_map.get(1, None)
+                if server_peer is None:
+                    return
+                
+                client_peer: YourTurnPeer = self._client_port_map.get(sender_port, None)
+                if client_peer is None:
+                    self._client_port_map[sender_port] = YourTurnPeer(sender_ip, sender_port, self.transport.write)
+                    server_peer.send(make_turn_packet(sender_port))
+                    print(f"Client [{sender_port}:{sender_ip}] registered")
+
+                server_peer.send(make_turn_packet(sender_port, data))
+            else:
+                print("Invalid packet received!")
             return
+        
         peer_id, payload = parsed_packet
         
         if len(payload) <= 0:
             self.register_peer(peer_id, addr)
         else:
+            if self._direct_mode:
+                # Peer ID == Client port, when using direct mode
+                client_peer: YourTurnPeer = self._client_port_map.get(peer_id, None)
+                if client_peer is None:
+                    return
+                client_peer.send(payload)
+                return
+
             peer: YourTurnPeer = self._peer_map.get(peer_id, None)
             if peer is None:
                 print(f"Invalid peer ID {peer_id}")
@@ -148,8 +178,9 @@ if __name__ == '__main__':
     )
     arg_parser.add_argument("-p", "--port", type=int, default=YOUR_TURN_PORT)
     arg_parser.add_argument("-v", "--verbose", action="store_true")
+    arg_parser.add_argument("-d", "--direct", action="store_true")
     args = arg_parser.parse_args()
 
-    reactor.listenUDP(args.port, YourTurnRelay(verbose=args.verbose))
+    reactor.listenUDP(args.port, YourTurnRelay(args.direct, verbose=args.verbose))
     print(f"Started TURN server on port {args.port}")
     reactor.run()
